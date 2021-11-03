@@ -55,7 +55,11 @@ const limiter = rateLimit({
 
 app.use("/api", limiter);
 
-app.post("/webhook-checkout", bookingController.webhookCheckout); // Stripe not working with JSON, only with RAW format
+app.post(
+  "/webhook-checkout",
+  express.raw({ type: "application/json" }),
+  bookingController.webhookCheckout
+); // Stripe not working with JSON, only with RAW format
 
 // Body parser, reading data from body into req.body
 app.use(express.json({ limit: "10kb" }));
