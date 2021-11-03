@@ -57,7 +57,7 @@ app.use("/api", limiter);
 
 app.post(
   "/webhook-checkout",
-  express.raw({ type: "application/json" }),
+  bodyParser.raw({ type: "application/json" }),
   bookingController.webhookCheckout
 ); // Stripe not working with JSON, only with RAW format
 
