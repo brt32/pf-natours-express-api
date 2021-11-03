@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const User = require("./../models/userModel");
 const catchAsync = require("./../utils/catchAsync");
 const AppError = require("./../utils/appError");
-const sendEmail = require("./../utils/email");
+const Email = require("./../utils/email");
 
 const signToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -45,6 +45,9 @@ exports.signup = catchAsync(async (req, res, next) => {
     passwordConfirm: req.body.passwordConfirm,
     passwordChangedAt: req.body.passwordChangedAt,
   });
+  const url = `${req.protocol}://${req.get("host")}/me`;
+
+  await new Email(newUser, url).sendWelcome();
 
   createSendToken(newUser, 201, res);
 });
@@ -172,18 +175,11 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
   await user.save({ validateBeforeSave: false });
 
   // 3) Send it to user's email
-  const resetURL = `${req.protocol}://${req.get(
-    "host"
-  )}/api/v1/users/resetPassword/${resetToken}`;
-
-  const message = `Forgot your password? Submit a PATCH request with your new password and passwordConfirm to: ${resetURL}.\nIf you didn't forget your password, please ignore this email!`;
-
   try {
-    await sendEmail({
-      email: user.email,
-      subject: "Your password reset token (valid for 10 min)",
-      message,
-    });
+    const resetURL = `${req.protocol}://${req.get(
+      "host"
+    )}/api/v1/users/resetPassword/${resetToken}`;
+    await new Email(user, resetURL).sendPasswordReset();
 
     res.status(200).json({
       status: "success",
@@ -230,18 +226,18 @@ exports.resetPassword = catchAsync(async (req, res, next) => {
 
 exports.updatePassword = catchAsync(async (req, res, next) => {
   // 1) Get user from collection
-  const user = await User.findById(req.user.id).select("+password"); // for logged in user, so the id is originated from current user, from protect middleware; need the password to compare it with the pass stored in db
-  if (!user) {
-    return next(new AppError("There is no user with email address.", 404));
+  const user = await User.findById(req.user.id).select("+password");
+
+  // 2) Check if POSTed current password is correct
+  if (!(await user.correctPassword(req.body.passwordCurrent, user.password))) {
+    return next(new AppError("Your current password is wrong.", 401));
   }
-  // 2) Check if POSTed password is correct, using correctPassword instance from userModel
-  if (!user.correctPassword(req.body.passwordCurrent, user.password)) {
-    return next(new AppError("Your current password is wrong", 401));
-  }
+
   // 3) If so, update password
   user.password = req.body.password;
   user.passwordConfirm = req.body.passwordConfirm;
-  await user.save(); // no findByIdAndUpdate because userSchema.pre in userModel will not working and password validator too
+  await user.save();
+  // User.findByIdAndUpdate will NOT work as intended!
 
   // 4) Log user in, send JWT
   createSendToken(user, 200, res);
